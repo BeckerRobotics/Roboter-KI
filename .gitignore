@@ -1,0 +1,23 @@
+# Gradle
+.gradle/
+build/
+app/build/
+core/build/
+
+# Android
+local.properties
+.externalNativeBuild/
+.cxx/
+*.apk
+*.ap_
+*.dex
+*.class
+
+# IDE
+.idea/
+*.iml
+.DS_Store
+
+# User-specific
+.artifacts/
+*.log

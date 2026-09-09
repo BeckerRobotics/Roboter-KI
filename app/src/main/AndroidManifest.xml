@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Für Spracheingabe (Stufe: STT) -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <!-- Für den optionalen Online-Fallback (Stufe 3) und die Netzwerk-Verfügbarkeitsprüfung -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <application
+        android:allowBackup="false"
+        android:label="Serviceroboter KI-Prototyp"
+        android:theme="@style/Theme.Serviceroboter"
+        android:name=".ServiceRoboterApplication">
+
+        <!--
+          allowBackup="false" bewusst gesetzt: verhindert, dass lokal gespeicherte
+          Wissensbasis-/Nutzungsdaten unkontrolliert in ein Cloud-Backup wandern
+          (siehe Recherche-Dokument, Abschnitt 6 – Datenminimierung).
+        -->
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
