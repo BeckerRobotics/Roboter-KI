@@ -8,6 +8,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -86,6 +88,7 @@ private fun MainScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     var typedText by remember { mutableStateOf("") }
+    val scrollState = rememberScrollState()
 
     val pdfLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -96,7 +99,8 @@ private fun MainScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(24.dp),
+            .padding(24.dp)
+            .verticalScroll(scrollState),
         verticalArrangement = Arrangement.Top
     ) {
         Text("Serviceroboter – KI-Prototyp", style = MaterialTheme.typography.headlineSmall)
@@ -123,9 +127,17 @@ private fun MainScreen(
             onClick = {
                 if (hasMicPermission()) viewModel.startListening() else onRequestMic()
             },
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            enabled = !state.isListening
         ) {
-            Text(if (state.isListening) "Höre zu … (4 Sek.)" else "🎤 Sprich mit dem Roboter")
+            Text(if (state.isListening) "Höre zu … (6 Sek.)" else "🎤 Sprich mit dem Roboter")
+        }
+        if (!state.isSttActive) {
+            Text(
+                "Offline-Spracherkennung nicht bereit (Modell fehlt). Bitte nutze die Tastatur unten.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.secondary
+            )
         }
 
         Spacer(Modifier.height(16.dp))

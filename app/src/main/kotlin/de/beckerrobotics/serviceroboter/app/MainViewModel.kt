@@ -21,7 +21,8 @@ data class UiState(
     val answer: String = "",
     val answerSource: AnswerSource? = null,
     val documentCount: Int = 0,
-    val isSmartSearchActive: Boolean = false
+    val isSmartSearchActive: Boolean = false,
+    val isSttActive: Boolean = false
 )
 
 /**
@@ -44,7 +45,8 @@ class MainViewModel(private val app: ServiceRoboterApplication) : ViewModel() {
     private fun updateStatus() {
         _uiState.value = _uiState.value.copy(
             documentCount = app.vectorStore.documentCount,
-            isSmartSearchActive = app.isSmartSearchActive()
+            isSmartSearchActive = app.isSmartSearchActive(),
+            isSttActive = app.sttEngine.isReady
         )
     }
 
@@ -69,15 +71,21 @@ class MainViewModel(private val app: ServiceRoboterApplication) : ViewModel() {
 
     fun startListening() {
         if (_uiState.value.isListening) return
+        if (!app.sttEngine.isReady) {
+            _uiState.value = _uiState.value.copy(answer = "Spracherkennung nicht bereit. Modell fehlt?")
+            return
+        }
         _uiState.value = _uiState.value.copy(isListening = true, transcript = "", answer = "")
 
         viewModelScope.launch {
-            val samples = audioCapture.recordFixedDuration()
+            val samples = audioCapture.recordFixedDuration(durationMs = 6000)
             val transcription = app.sttEngine.transcribe(samples, sampleRate = 16000)
             _uiState.value = _uiState.value.copy(isListening = false, transcript = transcription.text)
 
             if (transcription.text.isNotBlank()) {
                 handleUtterance(transcription.text)
+            } else {
+                _uiState.value = _uiState.value.copy(answer = "Nichts verstanden. Bitte deutlicher sprechen.")
             }
         }
     }

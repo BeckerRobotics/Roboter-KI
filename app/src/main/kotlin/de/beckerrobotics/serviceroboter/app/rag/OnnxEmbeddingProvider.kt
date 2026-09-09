@@ -7,6 +7,8 @@ import ai.onnxruntime.OrtSession
 import de.beckerrobotics.serviceroboter.core.EmbeddingProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.File
+import java.io.InputStream
 import java.nio.LongBuffer
 
 /**
@@ -41,17 +43,36 @@ class OnnxEmbeddingProvider(
         if (session == null || vocab == null) {
             runCatching {
                 if (session == null) {
-                    val modelBytes = context.assets.open(modelAssetPath).use { it.readBytes() }
-                    session = env.createSession(modelBytes, OrtSession.SessionOptions())
+                    val externalFile = File(context.getExternalFilesDir(null), modelAssetPath)
+                    if (externalFile.exists()) {
+                        android.util.Log.d("OnnxEmbeddingProvider", "Lade Session direkt von Datei: ${externalFile.absolutePath}")
+                        session = env.createSession(externalFile.absolutePath, OrtSession.SessionOptions())
+                    } else {
+                        android.util.Log.d("OnnxEmbeddingProvider", "Lade Session aus Assets (Kopie in Speicher)")
+                        val modelBytes = context.assets.open(modelAssetPath).use { it.readBytes() }
+                        session = env.createSession(modelBytes, OrtSession.SessionOptions())
+                    }
                 }
                 if (vocab == null) {
-                    vocab = context.assets.open(vocabAssetPath).bufferedReader().useLines { lines ->
+                    val vocabStream = openFileOrAsset(vocabAssetPath)
+                    vocab = vocabStream.bufferedReader().useLines { lines ->
                         lines.withIndex().associate { (index, token) -> token to index.toLong() }
                     }
                 }
             }.onFailure {
-                android.util.Log.e("OnnxEmbeddingProvider", "Fehler beim Laden von ONNX-Assets: ${it.message}")
+                android.util.Log.e("OnnxEmbeddingProvider", "Fehler beim Laden von ONNX-Dateien: ${it.message}")
             }
+        }
+    }
+
+    private fun openFileOrAsset(fileName: String): InputStream {
+        val externalFile = File(context.getExternalFilesDir(null), fileName)
+        return if (externalFile.exists()) {
+            android.util.Log.d("OnnxEmbeddingProvider", "Lade $fileName vom externen Speicher")
+            externalFile.inputStream()
+        } else {
+            android.util.Log.d("OnnxEmbeddingProvider", "Lade $fileName aus den Assets")
+            context.assets.open(fileName)
         }
     }
 
@@ -69,23 +90,35 @@ class OnnxEmbeddingProvider(
         val tokenIds = tokenize(text, currentVocab)
         val inputIds = LongArray(maxSequenceLength)
         val attentionMask = LongArray(maxSequenceLength)
+        val tokenTypeIds = LongArray(maxSequenceLength) // Neu hinzugefügt
+        
         tokenIds.forEachIndexed { i, id ->
             if (i < maxSequenceLength) {
                 inputIds[i] = id
                 attentionMask[i] = 1L
+                tokenTypeIds[i] = 0L // Meistens 0 für Single-Sentence
             }
         }
 
         OnnxTensor.createTensor(env, LongBuffer.wrap(inputIds), longArrayOf(1, maxSequenceLength.toLong())).use { inputTensor ->
             OnnxTensor.createTensor(env, LongBuffer.wrap(attentionMask), longArrayOf(1, maxSequenceLength.toLong())).use { maskTensor ->
-                val inputs = mapOf(
-                    "input_ids" to inputTensor,
-                    "attention_mask" to maskTensor
-                )
-                currentSession.run(inputs).use { results ->
-                    @Suppress("UNCHECKED_CAST")
-                    val tokenEmbeddings = (results[0].value as Array<Array<FloatArray>>)[0] // [seqLen][hiddenDim]
-                    meanPooling(tokenEmbeddings, attentionMask)
+                OnnxTensor.createTensor(env, LongBuffer.wrap(tokenTypeIds), longArrayOf(1, maxSequenceLength.toLong())).use { typeTensor ->
+                    val inputs = mutableMapOf(
+                        "input_ids" to inputTensor,
+                        "attention_mask" to maskTensor
+                    )
+                    // Nur hinzufügen, wenn das Modell es wirklich braucht (vermeidet Fehler bei Modellen ohne diesen Input)
+                    inputs["token_type_ids"] = typeTensor
+                    
+                    runCatching {
+                        currentSession.run(inputs).use { results ->
+                            @Suppress("UNCHECKED_CAST")
+                            val tokenEmbeddings = (results[0].value as Array<Array<FloatArray>>)[0] // [seqLen][hiddenDim]
+                            meanPooling(tokenEmbeddings, attentionMask)
+                        }
+                    }.onFailure {
+                        android.util.Log.e("OnnxEmbeddingProvider", "Fehler beim Ausführen der ONNX-Session: ${it.message}")
+                    }.getOrElse { FloatArray(0) }
                 }
             }
         }

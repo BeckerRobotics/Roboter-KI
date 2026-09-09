@@ -26,8 +26,7 @@ import java.io.File
  * bereits aufgenommenen PCM-Samples in Text, passend zum core-Interface [SpeechToTextEngine].
  */
 class VoskSttEngine(
-    context: Context,
-    private val modelPath: String = File(context.filesDir, "vosk-model-de").absolutePath,
+    private val context: Context,
     private val sampleRateHint: Float = 16000f
 ) : SpeechToTextEngine {
 
@@ -35,26 +34,46 @@ class VoskSttEngine(
 
     override val isReady: Boolean get() = model != null
 
-    /**
-     * Lädt das Vosk-Modell. Sollte einmalig beim App-Start (z. B. in [de.beckerrobotics.serviceroboter.app.ServiceRoboterApplication])
-     * in einem Hintergrund-Dispatcher aufgerufen werden – das Laden kann je nach Modellgröße
-     * spürbar Zeit in Anspruch nehmen.
-     */
     suspend fun initialize(): Boolean = withContext(Dispatchers.IO) {
-        if (!File(modelPath).exists()) {
-            // Bewusst kein Absturz: die App soll auch ohne Modell startbar sein (z. B. für
-            // Entwicklung der RAG-/Wissensbasis-Teile), STT ist dann einfach nicht verfügbar.
+        // Wir suchen im gesamten App-Speicher nach dem Vosk-Ordner
+        val internalFilesDir = context.filesDir
+        val externalFilesDir = context.getExternalFilesDir(null)
+        
+        val actualPath = findModelDir(internalFilesDir) ?: externalFilesDir?.let { findModelDir(it) }
+
+        android.util.Log.d("VoskSttEngine", "Suche Modell in intern: ${internalFilesDir.absolutePath} und extern: ${externalFilesDir?.absolutePath ?: "n/a"}")
+        
+        if (actualPath == null) {
+            android.util.Log.e("VoskSttEngine", "Kein gültiges Vosk-Modell gefunden (suche nach 'am'-Ordner)")
             return@withContext false
         }
+
+        android.util.Log.i("VoskSttEngine", "Lade Modell von: $actualPath")
         runCatching {
-            model = Model(modelPath)
+            model = Model(actualPath)
+        }.onFailure {
+            android.util.Log.e("VoskSttEngine", "Fehler beim Initialisieren des Vosk-Modells: ${it.message}")
         }.isSuccess
+    }
+
+    /** Findet den Ordner, der direkt die Vosk-Daten (am, conf, etc.) enthält. */
+    private fun findModelDir(dir: File): String? {
+        if (!dir.exists()) return null
+        if (File(dir, "am").exists() && File(dir, "conf").exists()) return dir.absolutePath
+        
+        return dir.listFiles()?.firstNotNullOfOrNull { 
+            if (it.isDirectory) findModelDir(it) else null 
+        }
     }
 
     override suspend fun transcribe(audioSamples: ShortArray, sampleRate: Int): TranscriptionResult =
         withContext(Dispatchers.Default) {
+            android.util.Log.d("VoskSttEngine", "Transkription gestartet... Samples: ${audioSamples.size}")
             val currentModel = model
-                ?: return@withContext TranscriptionResult(text = "", confidence = 0f)
+                ?: run {
+                    android.util.Log.e("VoskSttEngine", "Transkription abgebrochen: Modell nicht geladen!")
+                    return@withContext TranscriptionResult(text = "", confidence = 0f)
+                }
 
             val recognizer = Recognizer(currentModel, sampleRate.toFloat())
             try {
@@ -67,6 +86,7 @@ class VoskSttEngine(
                 }
                 recognizer.acceptWaveForm(bytes, bytes.size)
                 val resultJson = recognizer.finalResult
+                android.util.Log.d("VoskSttEngine", "Vosk Ergebnis JSON: $resultJson")
 
                 // Vosk liefert JSON der Form {"text": "..."}. Kein extra JSON-Parser-Dependency
                 // eingeführt, um die App schlank zu halten – bei Bedarf gerne gegen org.json o.ä. tauschen.
