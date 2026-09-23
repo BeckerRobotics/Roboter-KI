@@ -1,0 +1,52 @@
+{
+  "cases": [
+    {
+      "case": "document_answer",
+      "exit_code": 0,
+      "seconds_pc": 39.2,
+      "response": {
+        "answer": "Das Frühstück beginnt um acht Uhr im Speisesaal.",
+        "supported": true,
+        "needs_online": false,
+        "evidence": [
+          "Das Frühstück beginnt um acht Uhr im Speisesaal."
+        ]
+      }
+    },
+    {
+      "case": "document_abstention",
+      "exit_code": 0,
+      "seconds_pc": 24.7,
+      "response": {
+        "answer": "",
+        "supported": false,
+        "needs_online": false,
+        "evidence": []
+      }
+    },
+    {
+      "case": "offline_general",
+      "exit_code": 0,
+      "seconds_pc": 40.5,
+      "response": {
+        "answer": "Die Jahreszeiten wechseln, weil die Erde ihre Achse schräg zur Umlaufbahn um die Sonne ausrichtet. Dadurch erhält ein Halbkreis der Erde mehr Sonnenlicht im Sommer und weniger im Winter. Die Sonnenstrahlung erreicht die Erde unterschiedlich stark je nach Jahreszeit.",
+        "supported": true,
+        "needs_online": false,
+        "evidence": []
+      }
+    },
+    {
+      "case": "current_information",
+      "exit_code": 0,
+      "seconds_pc": 26.7,
+      "response": {
+        "answer": "",
+        "supported": false,
+        "needs_online": true,
+        "evidence": []
+      }
+    }
+  ],
+  "runtime": "llama.cpp b10952, Windows CPU",
+  "note": "PC-Smoke-Test mit ChatML-Prompt und der Grammatik aus der Android-Anbindung; kein Android-End-to-End-Test."
+}

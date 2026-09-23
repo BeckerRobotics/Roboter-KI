@@ -7,7 +7,8 @@ package de.beckerrobotics.serviceroboter.core
  */
 data class PipelineConfig(
     val intentConfidenceThreshold: Float = 0.34f,
-    val knowledgeConfidenceThreshold: Float = 0.6f, // Erhöht für bessere Präzision
+    // Candidate threshold for Jina cosine scores. Evidence checking decides whether to answer.
+    val knowledgeConfidenceThreshold: Float = 0.3f,
     val offlineLlmConfidenceThreshold: Float = 0.3f,
     val topKKnowledgeHits: Int = 3,
     /** Erlaubt es, den Online-Fallback global zu deaktivieren (z. B. per Konfiguration/Elternschalter). */

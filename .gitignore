@@ -21,3 +21,7 @@ local.properties
 # User-specific
 .artifacts/
 *.log
+
+# Large binary models
+*.onnx
+

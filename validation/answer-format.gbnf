@@ -1,0 +1,6 @@
+
+root ::= ws "{" ws "\"answer\"" ws ":" ws string ws "," ws "\"supported\"" ws ":" ws boolean ws "," ws "\"needs_online\"" ws ":" ws boolean ws "," ws "\"evidence\"" ws ":" ws "[" ws (string (ws "," ws string)*)? ws "]" ws "}" ws
+string ::= "\"" char* "\""
+char ::= [^"\\\x00-\x1F] | "\\" (["\\/bfnrt] | "u" [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F])
+boolean ::= "true" | "false"
+ws ::= [ \t\n\r]*

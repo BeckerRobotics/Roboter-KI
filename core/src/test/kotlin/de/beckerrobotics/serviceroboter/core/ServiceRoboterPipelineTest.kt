@@ -57,7 +57,7 @@ class ServiceRoboterPipelineTest {
     fun `Stufe 1 liefert Antwort aus Wissensbasis und ruft weder Offline-KI noch Online-Fallback auf, wenn Offline-KI verfuegbar ist`() = runTest {
         val hits = listOf(KnowledgeHit("memo.pdf", "Die Übung beginnt um 10 Uhr im Gemeinschaftsraum.", score = 0.9f))
         val knowledgeBase = FakeKnowledgeBase(hits)
-        val offlineLlm = FakeOfflineLlm(isAvailable = true, GenerationResult("Formulierte Antwort aus dem Dokument.", 0.8f))
+        val offlineLlm = FakeOfflineLlm(isAvailable = true, GenerationResult("Formulierte Antwort aus dem Dokument.", 0.8f, evidence = listOf(hits.first().chunkText)))
         val onlineFallback = FakeOnlineFallback(isNetworkAvailable = true, GenerationResult("Online-Antwort", 0.9f))
 
         val pipeline = ServiceRoboterPipeline(
@@ -90,7 +90,7 @@ class ServiceRoboterPipelineTest {
         val result = pipeline.handle("Wann beginnt die Übung?")
 
         assertEquals(AnswerSource.KNOWLEDGE_BASE, result.source)
-        assertEquals("Die Übung beginnt um 10 Uhr im Gemeinschaftsraum.", result.text)
+        assertTrue(result.text.contains("Die Übung beginnt um 10 Uhr im Gemeinschaftsraum."))
     }
 
     @Test
@@ -116,7 +116,7 @@ class ServiceRoboterPipelineTest {
 
     @Test
     fun `Stufe 3 greift nur wenn nichts gefunden wurde und Datenschutz-Filter nicht blockiert`() = runTest {
-        val onlineFallback = FakeOnlineFallback(isNetworkAvailable = true, GenerationResult("Online gefundene Antwort.", 0.6f))
+        val onlineFallback = FakeOnlineFallback(isNetworkAvailable = true, GenerationResult("Online gefundene Antwort.", 0.6f, webSources = listOf(WebSource("Quelle", "https://example.org/quelle"))))
 
         val pipeline = ServiceRoboterPipeline(
             intentEngine = FakeIntentEngine(noIntent),

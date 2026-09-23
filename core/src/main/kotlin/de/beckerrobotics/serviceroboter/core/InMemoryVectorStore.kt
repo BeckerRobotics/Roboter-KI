@@ -2,95 +2,58 @@ package de.beckerrobotics.serviceroboter.core
 
 import kotlin.math.sqrt
 
-/**
- * Einfache, vollständig lokale Vektorsuche (Cosine-Similarity) über die Chunks der importierten
- * Memos/PDFs. Bewusst ohne externe Vektor-DB-Abhängigkeit gehalten, damit dieses Modul ohne
- * Android/ObjectBox lauffähig und testbar ist.
- *
- * Für den produktiven Android-Einsatz mit größeren Dokumentmengen ist ein Austausch gegen
- * ObjectBox Vector DB oder Zvec sinnvoll (siehe Recherche-Dokument, Abschnitt 4) – das Interface
- * [KnowledgeBase] bleibt dabei unverändert, es muss nur eine andere Implementierung eingesetzt werden.
- *
- * @param embeddingProvider liefert die Embedding-Vektoren (im 'app'-Modul z. B. via ONNX Runtime
- *        mit all-MiniLM-L6-v2; in Tests durch einen einfachen Fake ersetzbar).
- */
-class InMemoryVectorStore(
-    private val embeddingProvider: EmbeddingProvider
-) : KnowledgeBase {
-
-    private val stopWords = setOf(
-        "der", "die", "das", "ein", "eine", "und", "ist", "sind", "mit", "fuer", "von", "aus",
-        "was", "wie", "wer", "wo", "wann", "warum", "einer", "einem", "einen"
-    )
-
-    private data class Entry(val sourceId: String, val chunkText: String, val vector: FloatArray)
-
+/** Hybrid German keyword and embedding retrieval with atomic document replacement. */
+class InMemoryVectorStore(private val embeddingProvider: EmbeddingProvider) : KnowledgeBase {
+    private data class Entry(val hit: KnowledgeHit, val vector: FloatArray, val words: Set<String>)
+    private val lock = Any()
     private val entries = mutableListOf<Entry>()
-
-    /** Indexiert ein Dokument: zerlegt es in Chunks und legt für jeden Chunk einen Embedding-Eintrag an. */
-    suspend fun indexDocument(sourceId: String, fullText: String) {
-        val chunks = TextChunker.chunk(fullText)
-        chunks.forEach { chunkText ->
-            val vector = embeddingProvider.embed(chunkText)
-            // Auch ohne Vektor (z.B. Modell fehlt) speichern wir den Chunk für Keyword-Suche
-            entries.add(Entry(sourceId, chunkText, vector))
-        }
-    }
-
-    /** Entfernt alle Chunks eines Dokuments, z. B. wenn ein Memo aktualisiert/gelöscht wurde
-     *  (relevant für das Lösch-/Aufbewahrungskonzept, siehe Recherche-Dokument Abschnitt 6). */
-    fun removeDocument(sourceId: String) {
-        entries.removeAll { it.sourceId == sourceId }
-    }
-
-    fun clear() = entries.clear()
-
-    val documentCount: Int get() = entries.map { it.sourceId }.distinct().size
-    val chunkCount: Int get() = entries.size
-
-    override suspend fun search(query: String, topK: Int): List<KnowledgeHit> {
-        if (entries.isEmpty()) return emptyList()
-        val queryVector = embeddingProvider.embed(query)
-
-        return if (queryVector.isEmpty()) {
-            // Fallback: Einfache Keyword-Suche, wenn kein Embedding-Modell verfügbar ist
-            val queryWords = query.lowercase().split(Regex("\\W+"))
-                .filter { it.length > 2 && it !in stopWords }
-            
-            if (queryWords.isEmpty()) return emptyList()
-
-            val results = entries.map { entry ->
-                val textLower = entry.chunkText.lowercase()
-                var matches = 0
-                queryWords.forEach { if (textLower.contains(it)) matches++ }
-                val score = matches.toFloat() / queryWords.size
-                KnowledgeHit(entry.sourceId, entry.chunkText, score)
+    private val stopWords = setOf(
+        "der","die","das","ein","eine","einen","einem","einer","und","ist","sind","mit","für","von",
+        "aus","was","wie","wer","wo","wann","warum","ich","du","sie","wir","es","im","in","am",
+        "an","zu","zum","zur","den","dem","des","mir","mich","kann","kannst","bitte","habe",
+        "steht","dokument","pdf","memo","meine","mein","muss","soll","sollte","wird","werden"
+    )
+    suspend fun indexDocument(sourceId: String, fullText: String) = indexPages(sourceId, listOf(null to fullText))
+    suspend fun indexPages(sourceId: String, pages: List<Pair<Int?, String>>) {
+        val replacements = pages.flatMap { (page, text) ->
+            TextChunker.chunk(text).map { chunk ->
+                Entry(KnowledgeHit(sourceId, chunk, 0f, page), embeddingProvider.embed(chunk), words(chunk))
             }
-            .filter { it.score > 0.3f } // Hoehere Hürde für Keyword-Suche
-            .sortedByDescending { it.score }
-            .take(topK)
-            
-            results
-        } else {
-            // Reguläre Vektor-Suche
-            entries.filter { it.vector.size == queryVector.size }
-                .map { KnowledgeHit(it.sourceId, it.chunkText, cosineSimilarity(queryVector, it.vector)) }
-                .sortedByDescending { it.score }
-                .take(topK)
+        }
+        synchronized(lock) {
+            entries.removeAll { it.hit.sourceId == sourceId }
+            entries.addAll(replacements)
         }
     }
-
-    private fun cosineSimilarity(a: FloatArray, b: FloatArray): Float {
-        require(a.size == b.size) { "Embedding-Dimensionen stimmen nicht überein (${a.size} vs. ${b.size})." }
-        var dot = 0f
-        var normA = 0f
-        var normB = 0f
-        for (i in a.indices) {
-            dot += a[i] * b[i]
-            normA += a[i] * a[i]
-            normB += b[i] * b[i]
-        }
-        val denom = sqrt(normA) * sqrt(normB)
-        return if (denom == 0f) 0f else dot / denom
+    fun removeDocument(sourceId: String) { synchronized(lock) { entries.removeAll { it.hit.sourceId == sourceId } } }
+    fun clear() { synchronized(lock) { entries.clear() } }
+    val documentCount: Int get() = synchronized(lock) { entries.map { it.hit.sourceId }.distinct().size }
+    val chunkCount: Int get() = synchronized(lock) { entries.size }
+    override suspend fun search(query: String, topK: Int): List<KnowledgeHit> {
+        if (topK <= 0) return emptyList()
+        val snapshot = synchronized(lock) { entries.toList() }
+        if (snapshot.isEmpty()) return emptyList()
+        val vector = embeddingProvider.embed(query)
+        val queryWords = words(query)
+        return snapshot.mapNotNull { entry ->
+            val lexical = if (queryWords.isEmpty()) 0f else
+                queryWords.count { word -> entry.words.any { candidate ->
+                    candidate == word || (word.length >= 5 && candidate.length >= 5 &&
+                        (candidate.startsWith(word) || word.startsWith(candidate)))
+                } }.toFloat() / queryWords.size
+            val semantic = if (vector.isNotEmpty() && vector.size == entry.vector.size)
+                cosine(vector, entry.vector).coerceIn(0f, 1f) else 0f
+            val score = maxOf(lexical * 0.85f, semantic * 0.85f + lexical * 0.15f)
+            if (score > 0f && score.isFinite()) entry.hit.copy(score = score) else null
+        }.sortedByDescending { it.score }.take(topK)
+    }
+    private fun words(text: String): Set<String> = Regex("[\\p{L}\\p{N}]+")
+        .findAll(text.lowercase().replace("ß", "ss")).map { it.value }
+        .filter { it.length > 2 && it !in stopWords }.toSet()
+    private fun cosine(a: FloatArray, b: FloatArray): Float {
+        var dot = 0.0; var aa = 0.0; var bb = 0.0
+        for (i in a.indices) { dot += a[i] * b[i]; aa += a[i] * a[i]; bb += b[i] * b[i] }
+        val denominator = sqrt(aa * bb)
+        return if (denominator > 0) (dot / denominator).toFloat() else 0f
     }
 }

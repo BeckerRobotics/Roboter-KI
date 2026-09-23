@@ -1,0 +1,74 @@
+{
+  "onnx_runtime": "1.23.2",
+  "embedding_model": "jinaai/jina-embeddings-v2-base-de (int8)",
+  "embedding_cases": [
+    {
+      "question": "Wann gibt es morgens etwas zu essen?",
+      "expected": 0,
+      "actual": 0,
+      "correct": true,
+      "scores": [
+        0.5124,
+        0.412,
+        0.0823,
+        0.2923
+      ]
+    },
+    {
+      "question": "Wo frühstücken wir?",
+      "expected": 0,
+      "actual": 0,
+      "correct": true,
+      "scores": [
+        0.4247,
+        0.3803,
+        0.164,
+        0.2888
+      ]
+    },
+    {
+      "question": "An welchem Wochentag ist das Gedächtnistraining?",
+      "expected": 1,
+      "actual": 1,
+      "correct": true,
+      "scores": [
+        0.2486,
+        0.6305,
+        0.1629,
+        0.3714
+      ]
+    },
+    {
+      "question": "Wo kann ich draußen im Schatten sitzen?",
+      "expected": 2,
+      "actual": 2,
+      "correct": true,
+      "scores": [
+        0.1552,
+        0.2366,
+        0.3597,
+        0.2285
+      ]
+    },
+    {
+      "question": "Bis wann kann sich Besuch anmelden?",
+      "expected": 3,
+      "actual": 3,
+      "correct": true,
+      "scores": [
+        0.167,
+        0.3542,
+        0.114,
+        0.5586
+      ]
+    }
+  ],
+  "embedding_seconds_pc": 0.36,
+  "tokenizer_reference_cases": 22,
+  "note": "Synthetische Funktionsprüfung auf dem PC, kein Qualitäts- oder Geschwindigkeitstest auf dem Roboter.",
+  "voice": {
+    "sample_rate": 22050,
+    "audio_seconds": 7.72,
+    "generation_seconds_pc": 4.46
+  }
+}

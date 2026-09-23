@@ -1,164 +1,93 @@
 package de.beckerrobotics.serviceroboter.app.rag
 
 import android.content.Context
-import ai.onnxruntime.OnnxTensor
-import ai.onnxruntime.OrtEnvironment
-import ai.onnxruntime.OrtSession
-import de.beckerrobotics.serviceroboter.core.EmbeddingProvider
+import ai.onnxruntime.*
+import de.beckerrobotics.serviceroboter.core.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
 import java.io.File
-import java.io.InputStream
 import java.nio.LongBuffer
+import kotlin.math.sqrt
 
-/**
- * Erzeugt semantische Embedding-Vektoren lokal auf dem Gerät über ein ONNX-exportiertes
- * Sentence-Embedding-Modell (Referenz-Setup: all-MiniLM-L6-v2, siehe Recherche-Dokument,
- * Abschnitt 4, analog zu github.com/shubham0204/Android-Document-QA).
- *
- * WICHTIG – vor dem ersten Start zu erledigen (siehe README.md):
- *  1. all-MiniLM-L6-v2 als ONNX-Modell besorgen/exportieren (z. B. via `optimum-cli export onnx`)
- *     und als `assets/all-MiniLM-L6-v2.onnx` ins Projekt legen.
- *  2. Eine passende WordPiece-Vokabeldatei (`vocab.txt`) ebenfalls unter `assets/` ablegen.
- *
- * Die Tokenisierung hier ist bewusst eine vereinfachte WordPiece-Variante als Startpunkt –
- * für produktionsreife Ergebnisse empfiehlt sich der Abgleich mit einer vollständigen
- * BERT/WordPiece-Tokenizer-Implementierung (z. B. über eine schlanke Tokenizer-Bibliothek).
- */
-class OnnxEmbeddingProvider(
-    private val context: Context,
-    private val modelAssetPath: String = "all-MiniLM-L6-v2.onnx",
-    private val vocabAssetPath: String = "vocab.txt",
-    private val maxSequenceLength: Int = 128
-) : EmbeddingProvider {
-
-    private val env: OrtEnvironment by lazy { OrtEnvironment.getEnvironment() }
+class OnnxEmbeddingProvider(private val context: Context) : EmbeddingProvider {
+    private val env = OrtEnvironment.getEnvironment()
     private var session: OrtSession? = null
-    private var vocab: Map<String, Long>? = null
+    private var encode: ((String) -> LongArray)? = null
+    @Volatile var modelName: String = "Stichwortsuche"
+        private set
+    override val isAvailable: Boolean get() = session != null
 
-    override val isAvailable: Boolean
-        get() = session != null && vocab != null
-
-    private suspend fun ensureLoaded() = withContext(Dispatchers.IO) {
-        if (session == null || vocab == null) {
-            runCatching {
-                if (session == null) {
-                    val externalFile = File(context.getExternalFilesDir(null), modelAssetPath)
-                    if (externalFile.exists()) {
-                        android.util.Log.d("OnnxEmbeddingProvider", "Lade Session direkt von Datei: ${externalFile.absolutePath}")
-                        session = env.createSession(externalFile.absolutePath, OrtSession.SessionOptions())
-                    } else {
-                        android.util.Log.d("OnnxEmbeddingProvider", "Lade Session aus Assets (Kopie in Speicher)")
-                        val modelBytes = context.assets.open(modelAssetPath).use { it.readBytes() }
-                        session = env.createSession(modelBytes, OrtSession.SessionOptions())
-                    }
-                }
-                if (vocab == null) {
-                    val vocabStream = openFileOrAsset(vocabAssetPath)
-                    vocab = vocabStream.bufferedReader().useLines { lines ->
-                        lines.withIndex().associate { (index, token) -> token to index.toLong() }
-                    }
-                }
-            }.onFailure {
-                android.util.Log.e("OnnxEmbeddingProvider", "Fehler beim Laden von ONNX-Dateien: ${it.message}")
+    suspend fun initialize() = withContext(Dispatchers.IO) {
+        try {
+            val german = context.assets.list("embeddings").orEmpty().contains("model.onnx")
+            val asset = if (german) "embeddings/model.onnx" else "all-MiniLM-L6-v2.onnx"
+            val filename = if (german) "jina-de-v2-3f9eede-int8.onnx" else "minilm-l6-v2.onnx"
+            val model = File(context.filesDir, filename)
+            if (!model.isFile) {
+                val temporary = File(model.parentFile, filename + ".partial")
+                context.assets.open(asset).use { input -> temporary.outputStream().use { input.copyTo(it) } }
+                check(temporary.renameTo(model)) { "Suchmodell konnte nicht gespeichert werden." }
             }
-        }
-    }
-
-    private fun openFileOrAsset(fileName: String): InputStream {
-        val externalFile = File(context.getExternalFilesDir(null), fileName)
-        return if (externalFile.exists()) {
-            android.util.Log.d("OnnxEmbeddingProvider", "Lade $fileName vom externen Speicher")
-            externalFile.inputStream()
-        } else {
-            android.util.Log.d("OnnxEmbeddingProvider", "Lade $fileName aus den Assets")
-            context.assets.open(fileName)
+            if (german) {
+                val vocabJson = JSONObject(context.assets.open("embeddings/vocab.json").bufferedReader().use { it.readText() })
+                val vocab = vocabJson.keys().asSequence().associateWith { vocabJson.getLong(it) }
+                val merges = context.assets.open("embeddings/merges.txt").bufferedReader().useLines { lines ->
+                    lines.filter { it.isNotBlank() && !it.startsWith("#") }.map { line ->
+                        val parts = line.split(' ')
+                        require(parts.size == 2)
+                        parts[0] to parts[1]
+                    }.toList()
+                }
+                val tokenizer = ByteBpeTokenizer(vocab, merges)
+                encode = { tokenizer.encode(it, 256) }
+            } else {
+                val vocab = context.assets.open("vocab.txt").bufferedReader().useLines {
+                    it.withIndex().associate { line -> line.value to line.index.toLong() }
+                }
+                val tokenizer = WordPieceTokenizer(vocab)
+                encode = { tokenizer.encode(it, 256) }
+            }
+            val options = OrtSession.SessionOptions()
+            try {
+                options.setIntraOpNumThreads(2)
+                session = env.createSession(model.absolutePath, options)
+            } finally { options.close() }
+            modelName = if (german) "Deutsche Dokumentensuche" else "MiniLM-Dokumentensuche"
+        } catch (_: Exception) {
+            session?.close(); session = null; encode = null
+            modelName = "Stichwortsuche (Suchmodell konnte nicht geladen werden)"
         }
     }
 
     override suspend fun embed(text: String): FloatArray = withContext(Dispatchers.Default) {
-        ensureLoaded()
-        val currentSession = session
-        val currentVocab = vocab
-
-        if (currentSession == null || currentVocab == null) {
-            // Fallback: Wenn das Modell fehlt, geben wir einen leeren Vektor zurück statt abzustürzen.
-            // Die Wissensbasis wird so keine Treffer finden, aber die App bleibt bedienbar.
-            return@withContext FloatArray(0)
-        }
-
-        val tokenIds = tokenize(text, currentVocab)
-        val inputIds = LongArray(maxSequenceLength)
-        val attentionMask = LongArray(maxSequenceLength)
-        val tokenTypeIds = LongArray(maxSequenceLength) // Neu hinzugefügt
-        
-        tokenIds.forEachIndexed { i, id ->
-            if (i < maxSequenceLength) {
-                inputIds[i] = id
-                attentionMask[i] = 1L
-                tokenTypeIds[i] = 0L // Meistens 0 für Single-Sentence
+        val active = session ?: return@withContext FloatArray(0)
+        val ids = encode?.invoke(text) ?: return@withContext FloatArray(0)
+        val mask = LongArray(ids.size) { 1L }
+        val tensors = mutableMapOf<String, OnnxTensor>()
+        try {
+            val shape = longArrayOf(1, ids.size.toLong())
+            tensors["input_ids"] = OnnxTensor.createTensor(env, LongBuffer.wrap(ids), shape)
+            if ("attention_mask" in active.inputNames)
+                tensors["attention_mask"] = OnnxTensor.createTensor(env, LongBuffer.wrap(mask), shape)
+            if ("token_type_ids" in active.inputNames)
+                tensors["token_type_ids"] = OnnxTensor.createTensor(env, LongBuffer.wrap(LongArray(ids.size)), shape)
+            active.run(tensors).use { results ->
+                val value = results.get("sentence_embedding").orElseGet { results[0] }
+                val dimensions = (value.info as TensorInfo).shape.size
+                @Suppress("UNCHECKED_CAST")
+                val pooled = if (dimensions == 2) (value.value as Array<FloatArray>)[0].copyOf()
+                    else {
+                        val tokens = (value.value as Array<Array<FloatArray>>)[0]
+                        val mean = FloatArray(tokens[0].size)
+                        tokens.forEach { token -> for (d in mean.indices) mean[d] += token[d] / tokens.size }
+                        mean
+                    }
+                val norm = sqrt(pooled.sumOf { it.toDouble() * it.toDouble() }).toFloat()
+                if (norm > 0 && norm.isFinite()) for (d in pooled.indices) pooled[d] /= norm
+                pooled
             }
-        }
-
-        OnnxTensor.createTensor(env, LongBuffer.wrap(inputIds), longArrayOf(1, maxSequenceLength.toLong())).use { inputTensor ->
-            OnnxTensor.createTensor(env, LongBuffer.wrap(attentionMask), longArrayOf(1, maxSequenceLength.toLong())).use { maskTensor ->
-                OnnxTensor.createTensor(env, LongBuffer.wrap(tokenTypeIds), longArrayOf(1, maxSequenceLength.toLong())).use { typeTensor ->
-                    val inputs = mutableMapOf(
-                        "input_ids" to inputTensor,
-                        "attention_mask" to maskTensor
-                    )
-                    // Nur hinzufügen, wenn das Modell es wirklich braucht (vermeidet Fehler bei Modellen ohne diesen Input)
-                    inputs["token_type_ids"] = typeTensor
-                    
-                    runCatching {
-                        currentSession.run(inputs).use { results ->
-                            @Suppress("UNCHECKED_CAST")
-                            val tokenEmbeddings = (results[0].value as Array<Array<FloatArray>>)[0] // [seqLen][hiddenDim]
-                            meanPooling(tokenEmbeddings, attentionMask)
-                        }
-                    }.onFailure {
-                        android.util.Log.e("OnnxEmbeddingProvider", "Fehler beim Ausführen der ONNX-Session: ${it.message}")
-                    }.getOrElse { FloatArray(0) }
-                }
-            }
-        }
-    }
-
-    /** Mean-Pooling über alle nicht-maskierten Token-Embeddings (Standardvorgehen bei Sentence-Transformers). */
-    private fun meanPooling(tokenEmbeddings: Array<FloatArray>, attentionMask: LongArray): FloatArray {
-        val hiddenDim = tokenEmbeddings.first().size
-        val pooled = FloatArray(hiddenDim)
-        var validTokens = 0
-        tokenEmbeddings.forEachIndexed { i, vector ->
-            if (attentionMask.getOrElse(i) { 0L } == 1L) {
-                validTokens++
-                for (d in 0 until hiddenDim) {
-                    pooled[d] = pooled[d] + vector[d]
-                }
-            }
-        }
-        if (validTokens > 0) {
-            for (d in 0 until hiddenDim) {
-                pooled[d] = pooled[d] / validTokens
-            }
-        }
-        return pooled
-    }
-
-    /**
-     * Sehr einfache Tokenisierung (Kleinschreibung + Whitespace-Split + Vokabular-Lookup mit
-     * Fallback auf [UNK]). Deckt keine vollständige WordPiece-Subword-Segmentierung ab – als
-     * Startpunkt für den Prototyp bewusst pragmatisch gehalten (siehe Klassen-Kommentar oben).
-     */
-    private fun tokenize(text: String, vocab: Map<String, Long>): List<Long> {
-        val clsId = vocab["[CLS]"] ?: 101L
-        val sepId = vocab["[SEP]"] ?: 102L
-        val unkId = vocab["[UNK]"] ?: 100L
-
-        val words = text.lowercase().split(Regex("\\W+")).filter { it.isNotBlank() }
-        val ids = mutableListOf(clsId)
-        words.forEach { word -> ids.add(vocab[word] ?: unkId) }
-        ids.add(sepId)
-        return ids
+        } catch (_: Exception) { FloatArray(0) }
+        finally { tensors.values.forEach { it.close() } }
     }
 }

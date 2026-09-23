@@ -1,0 +1,1 @@
+{"answer":"Die Jahreszeiten wechseln, weil die Erde ihre Achse schräg zur Umlaufbahn um die Sonne ausrichtet. Dadurch erhält ein Halbkreis der Erde mehr Sonnenlicht im Sommer und weniger im Winter. Die Sonnenstrahlung erreicht die Erde unterschiedlich stark je nach Jahreszeit.", "supported":true,"needs_online":false,"evidence":[]} [end of text]

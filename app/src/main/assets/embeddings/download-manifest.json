@@ -1,0 +1,74 @@
+[
+  {
+    "type": "file",
+    "oid": "8558924ee19e71ed7f7eb753d60de0b32bbfd1d3",
+    "size": 161565240,
+    "lfs": {
+      "oid": "b19a38d186594d9784e6a2c8954035a6928b5da1df402e7942d25021cf488b6b",
+      "size": 161565240,
+      "pointerSize": 134
+    },
+    "xetHash": "efbe7b2b9025033ebf6cc33d1bc229a0cbd903c9858d1c3b56c8adfc86a83ca2",
+    "path": "onnx/model_quantized.onnx",
+    "lastCommit": {
+      "id": "8f6a4d8ca885c2bce6d3e32fb4617a3d2c871ed8",
+      "title": "Add quantized ONNX weights (#5)",
+      "date": "2024-01-29T04:38:19Z"
+    }
+  },
+  {
+    "type": "file",
+    "oid": "0a0519eacc213730b907c6f1b3bc2e6e4dbfe1b4",
+    "size": 1006758,
+    "path": "vocab.json",
+    "lastCommit": {
+      "id": "ad1046b743fd0560b5a0e3b680518fbc0889b499",
+      "title": "Rename vocab (2).json to vocab.json",
+      "date": "2024-01-26T06:09:43Z"
+    }
+  },
+  {
+    "type": "file",
+    "oid": "35d25ec611978bb785921c1788e3ca0711f1fc76",
+    "size": 589466,
+    "path": "merges.txt",
+    "lastCommit": {
+      "id": "d868eba932f1648744b7ea918e96df923d70da7f",
+      "title": "Upload 7 files",
+      "date": "2024-01-26T06:03:16Z"
+    }
+  },
+  {
+    "type": "file",
+    "oid": "d4469aadf1a566e8b3f05187afefdea86cf66b26",
+    "size": 1211,
+    "path": "tokenizer_config.json",
+    "lastCommit": {
+      "id": "0651b18eec4d7e135f42c4ccd08b0cfc71a8aa8c",
+      "title": "Rename tokenizer_config (6).json to tokenizer_config.json",
+      "date": "2024-01-26T06:09:27Z"
+    }
+  },
+  {
+    "type": "file",
+    "oid": "c91274837c90987c806edfdbc7e73c81d7dfc961",
+    "size": 2633554,
+    "path": "tokenizer.json",
+    "lastCommit": {
+      "id": "208aaf07b4ca78440279ef719ac12d549d9a416c",
+      "title": "Rename tokenizer (4).json to tokenizer.json",
+      "date": "2024-01-26T06:09:10Z"
+    }
+  },
+  {
+    "type": "file",
+    "oid": "54605082735058857412008c6ff356ea53e66735",
+    "size": 82603,
+    "path": "README.md",
+    "lastCommit": {
+      "id": "3f9eede875721714945b6a99a3198299243cf2be",
+      "title": "Update README.md",
+      "date": "2025-01-06T16:26:47Z"
+    }
+  }
+]

@@ -1,20 +1,8 @@
 package de.beckerrobotics.serviceroboter.core
 
-/**
- * Herzstück des Prototyps: setzt die vom Nutzer gewünschte Priorisierung technisch um
- *
- *   1. Lokale Wissensbasis aus Memo/PDF   (höchste Priorität)
- *   2. Offline-KI (freies Sprachverständnis)
- *   3. Online-Suche/-LLM                  (nur wenn erlaubt, Netz vorhanden und datenschutzunbedenklich)
- *
- * plus einer vorgelagerten, schnellen Intent-Erkennung für klar definierte Befehle (siehe
- * Recherche-Dokument, Abschnitt 3.1) – das entspricht "Roboter versteht auch Formulierungsvarianten,
- * nicht nur exakte Kommandowörter", ohne für jede Kleinigkeit gleich ein großes Sprachmodell zu bemühen.
- *
- * Alle Abhängigkeiten sind Interfaces ([IntentEngine], [KnowledgeBase], [OfflineLanguageModel],
- * [OnlineFallbackClient], [PrivacyFilter]) – dadurch ist diese Klasse vollständig ohne Android-Gerät
- * testbar (siehe core/src/test).
- */
+import kotlinx.coroutines.CancellationException
+
+/** Documents -> local generation -> online search. First two stages never need a network client. */
 class ServiceRoboterPipeline(
     private val intentEngine: IntentEngine,
     private val knowledgeBase: KnowledgeBase,
@@ -23,121 +11,78 @@ class ServiceRoboterPipeline(
     private val privacyFilter: PrivacyFilter,
     private val config: PipelineConfig = PipelineConfig()
 ) {
-
     suspend fun handle(userUtterance: String, onStage: (PipelineStage) -> Unit = {}): PipelineResult {
-        require(userUtterance.isNotBlank()) { "userUtterance darf nicht leer sein." }
-
+        require(userUtterance.isNotBlank())
         onStage(PipelineStage.IntentCheck)
-        val intent = intentEngine.classify(userUtterance)
-        if (intent.isRecognized && intent.confidence >= config.intentConfidenceThreshold) {
-            return PipelineResult(
-                source = AnswerSource.INTENT,
-                text = describeIntent(intent),
-                intent = intent,
-                confidence = intent.confidence
-            )
+        val intent = attempt { intentEngine.classify(userUtterance) } ?: IntentResult(null, confidence = 0f)
+        if (intent.confidence >= config.intentConfidenceThreshold &&
+            intent.intentName in setOf("abbrechen", "wiederholen", "hilfe")) {
+            return PipelineResult(AnswerSource.INTENT, when (intent.intentName) {
+                "abbrechen" -> "In Ordnung, ich höre auf."
+                "wiederholen" -> "Ich wiederhole die letzte Antwort."
+                else -> "Sie können mir eine Frage stellen. Ich schaue zuerst in Ihren Dokumenten nach."
+            }, intent = intent, confidence = intent.confidence)
         }
-
-        // Stufe 1 – höchste Priorität: Wissensbasis
         onStage(PipelineStage.KnowledgeBaseLookup)
-        val hits = knowledgeBase.search(userUtterance, config.topKKnowledgeHits)
-        val bestHit = hits.firstOrNull()
-        
-        // Wenn Treffer SEHR gut ist (>0.8), sofort nehmen
-        if (bestHit != null && bestHit.score >= 0.8f) {
-            val answerText = if (offlineLlm.isAvailable) {
-                offlineLlm.generate(userUtterance, hits).text
+        val hits = attempt { knowledgeBase.search(userUtterance, config.topKKnowledgeHits) }
+            .orEmpty().filter { it.score.isFinite() && it.score >= config.knowledgeConfidenceThreshold }
+            .sortedByDescending { it.score }
+        if (hits.isNotEmpty()) {
+            if (offlineLlm.isAvailable) {
+                val grounded = attempt { offlineLlm.generate(userUtterance, hits) }
+                // Quote matching checks provenance, not logical entailment.
+                val evidenceHits = grounded?.evidence.orEmpty().filter { it.trim().length >= 8 }
+                    .flatMap { quote -> hits.filter { normalized(it.chunkText).contains(normalized(quote)) } }
+                    .distinct()
+                if (grounded != null && usable(grounded) && evidenceHits.isNotEmpty()) {
+                    return PipelineResult(AnswerSource.KNOWLEDGE_BASE, grounded.text,
+                        intent, evidenceHits, hits.first().score)
+                }
             } else {
-                bestHit.chunkText
+                val best = hits.first()
+                return PipelineResult(AnswerSource.KNOWLEDGE_BASE,
+                    "Ich habe diese passende Textstelle gefunden: " + best.chunkText,
+                    intent, listOf(best), best.score)
             }
-            return PipelineResult(
-                source = AnswerSource.KNOWLEDGE_BASE,
-                text = answerText,
-                intent = intent,
-                knowledgeHits = hits,
-                confidence = bestHit.score
-            )
         }
-
-        // Stufe 2 – Offline-KI (mit oder ohne Kontext)
         if (offlineLlm.isAvailable) {
             onStage(PipelineStage.OfflineLlmGeneration)
-            // Wenn wir einen mittelmäßigen Treffer haben, geben wir ihn als Kontext mit
-            val context = if (bestHit != null && bestHit.score >= config.knowledgeConfidenceThreshold) hits else emptyList()
-            val generation = offlineLlm.generate(userUtterance, context)
-            
-            // Das TemplateLLM hat confidence 0.6. Wenn es nur Text wiederholt, nehmen wir es nur,
-            // wenn der Context-Score auch okay war.
-            if (generation.confidence >= config.offlineLlmConfidenceThreshold) {
-                // Wenn es nur das Template ist und wir Smalltalk haben (kein Kontext), 
-                // wird confidence 0f sein -> Fallthrough zu Online!
-                if (generation.text.isNotBlank()) {
-                    return PipelineResult(
-                        source = AnswerSource.OFFLINE_LLM,
-                        text = generation.text,
-                        intent = intent,
-                        knowledgeHits = context,
-                        confidence = generation.confidence
-                    )
-                }
+            val answer = attempt { offlineLlm.generate(userUtterance, emptyList()) }
+            if (answer != null && usable(answer) && !requiresCurrentInformation(userUtterance) &&
+                !requiresPersonalRecords(userUtterance)) {
+                return PipelineResult(AnswerSource.OFFLINE_LLM, answer.text, intent, confidence = answer.confidence)
             }
         }
-
-        // Stufe 3 – letzte Option: Online-KI
-        if (config.onlineFallbackEnabled) {
+        if (config.onlineFallbackEnabled && !requiresPersonalRecords(userUtterance)) {
             val sanitized = privacyFilter.sanitize(userUtterance)
             if (sanitized.blocked) {
-                onStage(PipelineStage.Blocked(sanitized.reason ?: "Datenschutz-Filter"))
-                return PipelineResult(
-                    source = AnswerSource.NONE,
-                    text = "Aus Datenschutzgründen darf ich diese Frage nicht online stellen: ${sanitized.reason}",
-                    intent = intent,
-                    knowledgeHits = hits,
-                    confidence = 0f
-                )
+                onStage(PipelineStage.Blocked(sanitized.reason ?: "Persönliche Angaben"))
+                return PipelineResult(AnswerSource.NONE,
+                    "Dazu habe ich lokal keine belegte Antwort gefunden. Diese persönlichen Angaben sende ich nicht ins Internet.", intent)
             }
-            
             if (onlineFallback.isNetworkAvailable) {
                 onStage(PipelineStage.OnlineFallback)
-                val result = onlineFallback.search(sanitized.text)
-                if (result != null) {
-                    return PipelineResult(
-                        source = AnswerSource.ONLINE_FALLBACK,
-                        text = result.text,
-                        intent = intent,
-                        knowledgeHits = hits,
-                        confidence = result.confidence
-                    )
+                val answer = attempt { onlineFallback.search(sanitized.text) }
+                if (answer != null && usable(answer) && answer.webSources.isNotEmpty()) {
+                    return PipelineResult(AnswerSource.ONLINE_FALLBACK, answer.text, intent,
+                        confidence = answer.confidence, webSources = answer.webSources)
                 }
             }
         }
-
-        return PipelineResult(
-            source = AnswerSource.NONE,
-            text = "Entschuldigung, dazu konnte ich leider nichts finden.",
-            intent = intent,
-            knowledgeHits = hits,
-            confidence = 0f
-        )
+        return PipelineResult(AnswerSource.NONE,
+            "Dazu habe ich keine verlässliche Antwort gefunden. Sie können die Frage anders stellen oder eine Betreuungsperson fragen.", intent)
     }
-
-    /**
-     * Platzhalter-Formulierung für erkannte Befehle. In der App wird ein erkannter Intent in der
-     * Regel zusätzlich eine echte Aktion auslösen (Übung starten, Erinnerung stellen, ...) –
-     * das ist bewusst nicht Teil dieses core-Moduls, sondern gehört ins app-Modul (Aktionen sind
-     * eng mit Robotersteuerung/Android-Framework verzahnt).
-     */
-    private fun describeIntent(intent: IntentResult): String = when (intent.intentName) {
-        "uebung_starten" -> "Alles klar, ich starte die Übung."
-        "erinnerung_stellen" -> {
-            val uhrzeit = intent.slots["uhrzeit"] ?: "später"
-            val inhalt = intent.slots["inhalt"] ?: "das Gewünschte"
-            "Ich erinnere dich um $uhrzeit an $inhalt."
-        }
-        "frage_dokument" -> "Ich schaue im Dokument nach."
-        "wiederholen" -> "Klar, ich wiederhole das."
-        "abbrechen" -> "Alles klar, ich höre auf."
-        "hilfe" -> "Ich kann dir bei Übungen, Erinnerungen und Fragen zu deinen Dokumenten helfen."
-        else -> "Verstanden."
-    }
+    private fun usable(result: GenerationResult) = result.text.isNotBlank() && result.confidence.isFinite() &&
+        result.confidence >= config.offlineLlmConfidenceThreshold && !result.abstained && !result.needsOnline
+    private fun normalized(text: String) = text.lowercase().replace(Regex("\\s+"), " ").trim()
+    private fun requiresCurrentInformation(text: String) =
+        Regex("\\b(heute|aktuell|derzeit|jetzt|morgen|wetter|nachrichten|spielstand|wechselkurs)\\b",
+            RegexOption.IGNORE_CASE).containsMatchIn(text)
+    private fun requiresPersonalRecords(text: String) =
+        Regex("\\b(mein(?:e|en|em|er|es)?|unser(?:e|en|em|er|es)?)\\b", RegexOption.IGNORE_CASE).containsMatchIn(text) &&
+            Regex("(termin|tablett|medikament|arzt|pflege|adresse|telefon|diagnos|passwort|konto)", RegexOption.IGNORE_CASE)
+                .containsMatchIn(text)
+    private suspend fun <T> attempt(block: suspend () -> T): T? = try { block() }
+        catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: Exception) { null }
 }

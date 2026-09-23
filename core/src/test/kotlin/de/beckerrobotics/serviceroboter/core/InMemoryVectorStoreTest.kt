@@ -12,6 +12,7 @@ import kotlin.test.assertTrue
  * Ranking) unabhängig von einem konkreten ML-Modell zu testen.
  */
 private class FakeBagOfWordsEmbeddingProvider(private val dimensions: Int = 512) : EmbeddingProvider {
+    override val isAvailable: Boolean = true
     override suspend fun embed(text: String): FloatArray {
         val vector = FloatArray(dimensions)
         text.lowercase().split(Regex("\\W+")).filter { it.isNotBlank() }.forEach { word ->

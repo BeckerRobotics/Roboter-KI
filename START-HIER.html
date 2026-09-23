@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Serviceroboter KI · Start hier</title>
+<style>
+:root{color-scheme:light;--ink:#183331;--muted:#4d6663;--green:#14645c;--line:#d9e3df}
+*{box-sizing:border-box}body{margin:0;background:#f4f6f2;color:var(--ink);font:18px/1.6 system-ui,sans-serif}
+main{max-width:1080px;margin:auto;padding:48px 24px 72px}header{padding-bottom:24px;border-bottom:1px solid var(--line)}
+.eyebrow{font-size:13px;font-weight:750;letter-spacing:.13em;text-transform:uppercase;color:var(--green)}
+h1{font-size:clamp(36px,6vw,60px);line-height:1.1;letter-spacing:-.04em;margin:16px 0}h2{font-size:27px;margin:32px 0 16px;line-height:1.25}
+p{max-width:78ch}.sub{font-size:21px;color:var(--muted)}.flow{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin:28px 0}
+.card,.panel{background:white;border:1px solid var(--line);border-radius:16px;padding:24px}.card b{display:block;font-size:21px}
+.number{color:var(--green);font-weight:750;font-size:14px}.card p{color:var(--muted);margin-bottom:0}
+a{color:var(--green);text-underline-offset:4px;overflow-wrap:anywhere}a:focus-visible{outline:3px solid #dc9f3b;outline-offset:5px}
+.action{display:inline-block;background:var(--green);color:white;padding:11px 17px;border-radius:9px;text-decoration:none;margin:6px 8px 6px 0}
+li{padding:6px 0}ol{padding-left:26px}.note{background:#f9f0da;border-left:4px solid #ba852d;padding:16px 20px;border-radius:4px}
+audio{width:min(100%,560px)}small,.muted{color:var(--muted)}footer{border-top:1px solid var(--line);margin-top:32px;padding-top:22px;font-size:15px}
+@media(max-width:740px){.flow{grid-template-columns:1fr}main{padding:28px 18px}.card,.panel{padding:20px}}
+@media print{body{background:white}main{padding:0}.action{background:white;color:var(--ink);border:1px solid var(--line)}audio{display:none}.card,.panel{break-inside:avoid}}
+</style></head><body><main>
+<header><div class="eyebrow">Serviceroboter · Android-Testversion · 15. September 2026</div>
+<h1>Wissen vor Ort.<br>Eine deutsche Stimme.</h1>
+<p class="sub">Dein überarbeitetes Projekt: zuerst eigene Dokumente, danach die lokale KI und zuletzt eine Online-Suche.</p>
+<p><strong>Voraussetzung:</strong> Android 7 oder neuer auf einem 64-Bit-ARM-Gerät. Für das Paket sind etwa 6 GB freier Speicher sinnvoll. Die genannten 8 GB RAM müssen auf dem Roboter noch in der Praxis geprüft werden.</p></header>
+<section class="flow" aria-label="Reihenfolge der Antwortsuche">
+<div class="card"><span class="number">01 · EIGENES WISSEN</span><b>Memos &amp; PDFs</b><p>Deutsche Dokumentensuche. Antworten zeigen die verwendeten Quellen und PDF-Seiten.</p></div>
+<div class="card"><span class="number">02 · AUF DEM GERÄT</span><b>Qwen offline</b><p>Ein echtes lokales Sprachmodell beantwortet weitere Fragen ohne Internetverbindung.</p></div>
+<div class="card"><span class="number">03 · BEI BEDARF</span><b>Online nachschlagen</b><p>Wikipedia ist vorbereitet. Allgemeine Websuche benötigt eine SearXNG-Suchadresse.</p></div>
+</section>
+<section class="panel"><h2 style="margin-top:0">Die neue Stimme anhören</h2>
+<p>Thorsten ist eine männliche deutsche Offline-Stimme. Diese Hörprobe wurde mit dem Modell am PC erzeugt; die Ausgabe auf dem Roboter hängt auch von dessen Lautsprecher ab.</p>
+<audio controls preload="none" src="Hoerprobe-Thorsten.wav">Dein Browser unterstützt keine Audiowiedergabe.</audio>
+<p><a href="Hoerprobe-Thorsten.wav">Hörprobe als WAV öffnen</a></p></section>
+<section><h2>In sechs Schritten starten</h2>
+<p>Kopiere die beiden APK-Dateien und das GGUF-Modell auf den Roboter. Die APK-Dateien werden dort installiert.</p>
+<ol>
+<li><strong>Stimme installieren.</strong> <a href="02-Thorsten-Deutsch-arm64.apk">02-Thorsten-Deutsch-arm64.apk</a> öffnen. Anschließend die App „TTS Engine: Next-gen Kaldi“ einmal starten und ihre Sprachausgabe prüfen.</li>
+<li><strong>Roboter-App installieren.</strong> <a href="01-Serviceroboter-KI.apk">01-Serviceroboter-KI.apk</a> öffnen und der App Zugriff auf das Mikrofon geben.</li>
+<li><strong>Sprachmodell importieren.</strong> In „Dokumente &amp; Einstellungen“ auf „Lokales Sprachmodell importieren“ tippen. <a href="Qwen3-4B-Instruct-2507-Q4_K_M.gguf">Qwen3-4B-Instruct-2507-Q4_K_M.gguf</a> auswählen und auf „Lokale KI bereit“ warten. Die Datei ist etwa 2,5 GB groß.</li>
+<li><strong>Stimme verbinden.</strong> Falls nötig, in der Verwaltung „Installierte Stimme neu laden“ auswählen.</li>
+<li><strong>Eigenes Wissen hinzufügen.</strong> Ein PDF importieren oder das Memo „Das Frühstück beginnt um acht Uhr im Speisesaal.“ speichern. Danach fragen: „Wann beginnt das Frühstück?“</li>
+<li><strong>Offline prüfen.</strong> WLAN ausschalten und erneut fragen. Danach eine allgemeine Frage stellen, die nicht im Memo steht. Antwort, Quelle, Stopp-Taste und Vorlesen prüfen.</li>
+</ol>
+<p class="note">Bei einer Meldung über eine abweichende App-Signatur die vorhandene App nicht vorschnell deinstallieren: Dabei würden ihre privaten Daten gelöscht. Eine Aktualisierung braucht den bisherigen Signaturschlüssel.</p></section>
+<section class="panel"><h2 style="margin-top:0">Was für die allgemeine Websuche noch fehlt</h2>
+<p>Standardmäßig wird die deutsche Wikipedia durchsucht. Für Wetter und beliebige aktuelle Webseiten muss unter „Eigene Suchadresse“ ein bereitgestellter <strong>SearXNG-HTTPS-Suchendpunkt</strong> eingetragen werden. Dort muss die JSON-Ausgabe aktiviert sein.</p>
+<p>Die App sendet die Suchfrage an diesen Dienst. PDF- und Memo-Auszüge bleiben lokal. Der Schalter „Online nachschlagen erlauben“ deaktiviert die Online-Stufe.</p>
+<a href="README.md">Ausführliche Einrichtung und technische Hinweise</a></section>
+<section><h2>Geprüft – und noch auf dem Gerät zu prüfen</h2>
+<p><strong>44 automatisierte Tests bestehen.</strong> Dazu kommen echte PC-Durchläufe mit dem deutschen Suchmodell, vier Sprachmodell-Szenarien und die Hörprobe. Die Android-App wurde erfolgreich gebaut; Android-Lint meldet 0 Fehler und 9 Warnungen.</p>
+<p><strong>Es war kein Roboter angeschlossen.</strong> Mikrofon, TTS-Verbindung, freier Arbeitsspeicher und Antwortgeschwindigkeit müssen am Zielgerät geprüft werden. Die PC-Anfragen dauerten etwa 25–40 Sekunden einschließlich Modellstart; das ist keine Messung auf deinem Roboter.</p>
+<p>Das Paket ist eine Debug-Testversion. Vor dem Einsatz bei Senioren mit Betreuungspersonal und echten Beispielfragen erproben. Scan-PDFs brauchen vorher eine Textschicht. Bewegungen und echte Erinnerungen sind noch nicht angebunden.</p>
+<a class="action" href="README.md">Vollständige Anleitung</a>
+<a class="action" href="Serviceroboter-KI-Quellcode.zip">Quellcode öffnen</a>
+<a class="action" href="Pruefberichte/ZUSAMMENFASSUNG.md">Prüfbericht lesen</a>
+</section>
+<footer>Alle Installationsdateien liegen in diesem Ordner. Die Originaldateien bleiben erhalten. Den im ursprünglichen Projekt gefundenen Google-API-Schlüssel bitte beim Anbieter widerrufen; die neue Version verwendet ihn nicht.<br><a href="Lizenzen/HERKUNFT.md">Herkunft &amp; Lizenzen</a> · <a href="SHA256SUMS.txt">Datei-Prüfsummen</a></footer>
+</main></body></html>
+

@@ -1,190 +1,167 @@
 package de.beckerrobotics.serviceroboter.app
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Button
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
-import androidx.lifecycle.viewmodel.CreationExtras
+import de.beckerrobotics.serviceroboter.core.AnswerSource
 
-/**
- * Bewusst schlanke Test-UI für den Prototyp: Mikrofon-Aufnahme ODER Texteingabe (letzteres
- * praktisch zum Testen der Pipeline-Logik ohne Vosk-Modell/Mikrofonberechtigung), Anzeige der
- * Antwort inkl. verwendeter Stufe (Transparenz, siehe Recherche-Dokument Abschnitt 6).
- *
- * Kein Anspruch auf ein fertiges, seniorengerechtes UI-Design – das ist bewusst Sache der
- * eigentlichen Lernanwendungs-Oberfläche und nicht dieses technischen Prototyps.
- */
 class MainActivity : ComponentActivity() {
-
-    private val viewModel: MainViewModel by viewModels {
+    private val model: MainViewModel by viewModels {
         object : ViewModelProvider.Factory {
-            override fun <T : androidx.lifecycle.ViewModel> create(
-                modelClass: Class<T>,
-                extras: CreationExtras
-            ): T {
-                @Suppress("UNCHECKED_CAST")
-                return MainViewModel(application as ServiceRoboterApplication) as T
-            }
+            @Suppress("UNCHECKED_CAST")
+            override fun <T : ViewModel> create(modelClass: Class<T>): T =
+                MainViewModel(application as ServiceRoboterApplication) as T
         }
     }
-
-    private val requestMicPermission = registerForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { /* Ergebnis wird beim nächsten Tastendruck erneut geprüft. */ }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            MaterialTheme {
-                Surface(modifier = Modifier.fillMaxSize()) {
-                    MainScreen(
-                        viewModel = viewModel,
-                        onRequestMic = { requestMicPermission.launch(Manifest.permission.RECORD_AUDIO) },
-                        hasMicPermission = {
-                            ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) ==
-                                PackageManager.PERMISSION_GRANTED
-                        }
-                    )
-                }
+            MaterialTheme(colorScheme = lightColorScheme(
+                primary = Color(0xFF235A55), background = Color(0xFFF7F5F0),
+                surface = Color(0xFFFFFFFF), onSurface = Color(0xFF172E30)
+            )) {
+                Surface(modifier = Modifier.fillMaxSize()) { RobotScreen(model) }
             }
         }
     }
 }
 
 @Composable
-private fun MainScreen(
-    viewModel: MainViewModel,
-    onRequestMic: () -> Unit,
-    hasMicPermission: () -> Boolean
-) {
-    val state by viewModel.uiState.collectAsState()
-    var typedText by remember { mutableStateOf("") }
-    val scrollState = rememberScrollState()
-
-    val pdfLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri ->
-        uri?.let { viewModel.importPdf(it) }
+private fun RobotScreen(model: MainViewModel) {
+    val state by model.uiState.collectAsState()
+    var question by remember { mutableStateOf("") }
+    var manage by remember { mutableStateOf(false) }
+    var memoTitle by remember { mutableStateOf("") }
+    var memoText by remember { mutableStateOf("") }
+    var online by remember(state.onlineEnabled) { mutableStateOf(state.onlineEnabled) }
+    var endpoint by remember(state.searchEndpoint) { mutableStateOf(state.searchEndpoint) }
+    var rate by remember(state.speechRate) { mutableStateOf(state.speechRate) }
+    var pendingDelete by remember { mutableStateOf<String?>(null) }
+    val documentPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) {
+        if (it != null) model.importDocument(it)
     }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(24.dp)
-            .verticalScroll(scrollState),
-        verticalArrangement = Arrangement.Top
-    ) {
-        Text("Serviceroboter – KI-Prototyp", style = MaterialTheme.typography.headlineSmall)
-        Spacer(Modifier.height(8.dp))
-
-        // Dokumenten-Bereich
-        Text("Wissensbasis (PDFs & Memos)", style = MaterialTheme.typography.titleMedium)
-        Text("Dokumente geladen: ${state.documentCount}", style = MaterialTheme.typography.bodySmall)
-        Text(
-            text = if (state.isSmartSearchActive) "✅ Smarte Suche aktiv" else "⚠️ Einfache Suche (Modell fehlt)",
-            style = MaterialTheme.typography.labelSmall,
-            color = if (state.isSmartSearchActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
-        )
-        Button(
-            onClick = { pdfLauncher.launch("application/pdf") },
-            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
-        ) {
-            Text("📄 PDF hochladen")
+    val modelPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) {
+        if (it != null) model.importModel(it)
+    }
+    val mic = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+        if (it) model.listen()
+    }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val linkHandler = LocalUriHandler.current
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Text("Schön, dass Sie da sind.", fontSize = 30.sp, lineHeight = 38.sp)
+        Text("Was möchten Sie wissen?", fontSize = 22.sp)
+        Button(onClick = {
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
+                model.listen() else mic.launch(Manifest.permission.RECORD_AUDIO)
+        }, enabled = state.ready && !state.busy && state.sttReady,
+            modifier = Modifier.fillMaxWidth().heightIn(min = 72.dp)) {
+            Text(if (state.listening) "Ich höre zu …" else "Frage stellen", fontSize = 24.sp)
         }
-        
-        HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
-
-        Button(
-            onClick = {
-                if (hasMicPermission()) viewModel.startListening() else onRequestMic()
-            },
-            modifier = Modifier.fillMaxWidth(),
-            enabled = !state.isListening
-        ) {
-            Text(if (state.isListening) "Höre zu … (6 Sek.)" else "🎤 Sprich mit dem Roboter")
+        if (state.stage.isNotBlank()) {
+            if (state.busy || !state.ready) LinearProgressIndicator(Modifier.fillMaxWidth())
+            Text(state.stage, fontSize = 20.sp)
         }
-        if (!state.isSttActive) {
-            Text(
-                "Offline-Spracherkennung nicht bereit (Modell fehlt). Bitte nutze die Tastatur unten.",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.secondary
-            )
+        OutlinedTextField(value = question, onValueChange = { question = it.take(2000) },
+            modifier = Modifier.fillMaxWidth(), label = { Text("Frage eingeben", fontSize = 18.sp) },
+            textStyle = LocalTextStyle.current.copy(fontSize = 22.sp), enabled = !state.busy)
+        Button(onClick = { model.submit(question); question = "" },
+            enabled = state.ready && !state.busy && question.isNotBlank(), modifier = Modifier.heightIn(min = 56.dp)) {
+            Text("Antwort erhalten", fontSize = 20.sp)
         }
-
-        Spacer(Modifier.height(16.dp))
-        Text("…oder zum Testen tippen:", style = MaterialTheme.typography.labelMedium)
-        OutlinedTextField(
-            value = typedText,
-            onValueChange = { typedText = it },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("Was möchtest du fragen?") }
-        )
-        Button(
-            onClick = {
-                viewModel.submitTypedText(typedText)
-                typedText = ""
-            },
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("Senden")
-        }
-
-        Spacer(Modifier.height(24.dp))
-
-        if (state.transcript.isNotBlank()) {
-            Text("Verstanden: \"${state.transcript}\"", style = MaterialTheme.typography.bodyMedium)
-            Spacer(Modifier.height(8.dp))
-        }
-
-        state.currentStage?.let {
-            Text(it, style = MaterialTheme.typography.bodySmall)
-            Spacer(Modifier.height(8.dp))
-        }
-
+        if (state.transcript.isNotBlank()) Text("Ihre Frage: ${state.transcript}", fontSize = 18.sp)
         if (state.answer.isNotBlank()) {
-            Text("Antwort:", style = MaterialTheme.typography.labelLarge)
-            Text(state.answer, style = MaterialTheme.typography.bodyLarge)
-            
-            Button(
-                onClick = { viewModel.stopSpeaking() },
-                modifier = Modifier.padding(top = 8.dp)
-            ) {
-                Text("🔇 Ton aus")
-            }
-
-            Spacer(Modifier.height(4.dp))
-            state.answerSource?.let {
-                Text("(Quelle: $it)", style = MaterialTheme.typography.labelSmall)
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(state.answer, fontSize = 25.sp, lineHeight = 35.sp)
+                    Text(when (state.source) {
+                        AnswerSource.KNOWLEDGE_BASE -> "Aus Ihren Dokumenten"
+                        AnswerSource.OFFLINE_LLM -> "Antwort der lokalen KI"
+                        AnswerSource.ONLINE_FALLBACK -> "Im Internet gefunden"
+                        else -> ""
+                    }, fontSize = 16.sp)
+                    state.citations.forEach { source ->
+                        val url = source.substringAfterLast('\n', "")
+                        if (url.startsWith("https://")) TextButton(onClick = { linkHandler.openUri(url) }) {
+                            Text(source.substringBefore('\n'), fontSize = 17.sp)
+                        } else Text(source, fontSize = 16.sp)
+                    }
+                }
             }
         }
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            OutlinedButton(onClick = model::repeat, enabled = state.answer.isNotBlank() && !state.busy,
+                modifier = Modifier.weight(1f).heightIn(min = 60.dp)) { Text("Noch einmal", fontSize = 20.sp) }
+            Button(onClick = model::stop, modifier = Modifier.weight(1f).heightIn(min = 60.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF8E3636))) {
+                Text("Stopp", fontSize = 22.sp)
+            }
+        }
+        if (state.message.isNotBlank()) Text(state.message, fontSize = 18.sp)
+        HorizontalDivider()
+        TextButton(onClick = { manage = !manage }) { Text(if (manage) "Verwaltung schließen" else "Dokumente & Einstellungen", fontSize = 18.sp) }
+        if (manage) {
+            Text("Verwaltung", fontSize = 26.sp)
+            Text("${state.documentCount} Dokumente geladen\n${state.searchStatus}\n${state.llmStatus}\n${state.speechStatus}", fontSize = 17.sp)
+            Button(onClick = { documentPicker.launch(arrayOf("application/pdf", "text/plain", "text/markdown")) },
+                enabled = state.ready && !state.busy) { Text("PDF oder Textdatei hinzufügen") }
+            state.documentNames.forEach { name ->
+                Row(Modifier.fillMaxWidth()) {
+                    Text(name, modifier = Modifier.weight(1f), fontSize = 16.sp)
+                    TextButton(onClick = { pendingDelete = name }, enabled = !state.busy) { Text("Löschen") }
+                }
+            }
+            OutlinedTextField(value = memoTitle, onValueChange = { memoTitle = it },
+                label = { Text("Titel des Memos") }, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(value = memoText, onValueChange = { memoText = it },
+                label = { Text("Memo") }, minLines = 3, modifier = Modifier.fillMaxWidth())
+            Button(onClick = { model.saveMemo(memoTitle, memoText); memoTitle = ""; memoText = "" },
+                enabled = state.ready && !state.busy && memoText.isNotBlank()) { Text("Memo speichern") }
+            HorizontalDivider()
+            Text("Stimme", fontSize = 22.sp)
+            Text("Sprechtempo", fontSize = 18.sp)
+            Slider(value = rate, onValueChange = { rate = it }, valueRange = 0.7f..1.15f)
+            Button(onClick = model::refreshVoice, enabled = !state.busy) { Text("Installierte Stimme neu laden") }
+            Text("Internet", fontSize = 22.sp)
+            Row {
+                Text("Online nachschlagen erlauben", Modifier.weight(1f), fontSize = 18.sp)
+                Switch(checked = online, onCheckedChange = { online = it })
+            }
+            OutlinedTextField(value = endpoint, onValueChange = { endpoint = it },
+                label = { Text("Eigene Suchadresse (optional)") }, modifier = Modifier.fillMaxWidth())
+            Text("Ohne eigene Suchadresse wird die deutsche Wikipedia durchsucht. Für eine allgemeine Websuche hier eine HTTPS-Adresse einer SearXNG-Suche mit JSON-Unterstützung eintragen.", fontSize = 16.sp)
+            Button(onClick = { model.saveSettings(online, endpoint, rate) }, enabled = !state.busy) { Text("Einstellungen speichern") }
+            HorizontalDivider()
+            Button(onClick = { modelPicker.launch(arrayOf("*/*")) }, enabled = state.ready && !state.busy) {
+                Text("Lokales Sprachmodell importieren (.gguf)")
+            }
+        }
+    }
+    pendingDelete?.let { name ->
+        AlertDialog(onDismissRequest = { pendingDelete = null },
+            title = { Text("Dokument löschen?") }, text = { Text(name) },
+            confirmButton = { TextButton(onClick = { model.deleteDocument(name); pendingDelete = null }) { Text("Löschen") } },
+            dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("Behalten") } })
     }
 }

@@ -1,105 +1,65 @@
 package de.beckerrobotics.serviceroboter.app
 
 import android.app.Application
-import de.beckerrobotics.serviceroboter.app.llm.GeminiNanoLlmEngine
-import de.beckerrobotics.serviceroboter.app.llm.TemplateOfflineLanguageModel
+import de.beckerrobotics.serviceroboter.app.llm.LlamaCppLanguageModel
 import de.beckerrobotics.serviceroboter.app.network.SimpleOnlineFallbackClient
-import de.beckerrobotics.serviceroboter.app.rag.OnnxEmbeddingProvider
-import de.beckerrobotics.serviceroboter.app.rag.PdfIngestor
+import de.beckerrobotics.serviceroboter.app.rag.*
 import de.beckerrobotics.serviceroboter.app.stt.VoskSttEngine
 import de.beckerrobotics.serviceroboter.app.tts.TtsProvider
-import de.beckerrobotics.serviceroboter.core.DefaultPrivacyFilter
-import de.beckerrobotics.serviceroboter.core.InMemoryVectorStore
-import de.beckerrobotics.serviceroboter.core.OfflineLanguageModel
-import de.beckerrobotics.serviceroboter.core.RuleBasedIntentEngine
-import de.beckerrobotics.serviceroboter.core.ServiceRoboterPipeline
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
+import de.beckerrobotics.serviceroboter.core.*
+import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
-/**
- * Manuelle, bewusst einfache Zusammensetzung ("Dependency Injection") aller Bausteine aus der
- * Recherche. Für ein wachsendes Projekt bietet sich später ein DI-Framework an (z. B. Hilt) –
- * für den Prototyp reicht das hier, um die Verdrahtung nachvollziehbar zu halten.
- *
- * [offlineLlm] verwendet standardmäßig [TemplateOfflineLanguageModel] (sofort lauffähig ohne
- * Gerätevoraussetzungen). Sobald [GeminiNanoLlmEngine] auf einem unterstützten Gerät getestet und
- * an die aktuelle ML-Kit-GenAI-API angepasst wurde (siehe Kommentare dort), hier einfach tauschen.
- */
+data class ReadyState(val ready: Boolean = false, val message: String = "Der Roboter wird vorbereitet.")
+
 class ServiceRoboterApplication : Application() {
-
-    private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-
-    lateinit var sttEngine: VoskSttEngine
-        private set
-
-    lateinit var vectorStore: InMemoryVectorStore
-        private set
-
-    lateinit var pipeline: ServiceRoboterPipeline
-        private set
-
-    lateinit var pdfIngestor: PdfIngestor
-        private set
-
-    lateinit var ttsProvider: TtsProvider
-        private set
-
-    private lateinit var embeddingProvider: OnnxEmbeddingProvider
-
-    var isReady: Boolean = false
-        private set
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val documentMutex = Mutex()
+    val readiness = MutableStateFlow(ReadyState())
+    lateinit var settings: AppSettings; private set
+    lateinit var sttEngine: VoskSttEngine; private set
+    lateinit var vectorStore: InMemoryVectorStore; private set
+    lateinit var pipeline: ServiceRoboterPipeline; private set
+    lateinit var pdfIngestor: PdfIngestor; private set
+    lateinit var ttsProvider: TtsProvider; private set
+    lateinit var offlineLlm: LlamaCppLanguageModel; private set
+    lateinit var embeddingProvider: OnnxEmbeddingProvider; private set
+    val isReady: Boolean get() = readiness.value.ready
 
     override fun onCreate() {
         super.onCreate()
-
-        ttsProvider = TtsProvider(this)
-
+        settings = AppSettings(this)
+        ttsProvider = TtsProvider(this, settings)
         embeddingProvider = OnnxEmbeddingProvider(this)
         vectorStore = InMemoryVectorStore(embeddingProvider)
         pdfIngestor = PdfIngestor(this)
-
         sttEngine = VoskSttEngine(this)
-
-        val intentEngine = RuleBasedIntentEngine(RuleBasedIntentEngine.defaultIntents())
-
-        // Standardmäßig der sofort funktionsfähige Platzhalter (siehe Klassenkommentar oben).
-        // Alternative: GeminiNanoLlmEngine(this) - siehe README "Nächste Schritte".
-        val offlineLlm: OfflineLanguageModel = TemplateOfflineLanguageModel()
-
-        val onlineFallback = SimpleOnlineFallbackClient(
-            context = this,
-            apiKey = GEMINI_API_KEY.ifBlank { null }
-        )
-
-        val privacyFilter = DefaultPrivacyFilter()
-
+        offlineLlm = LlamaCppLanguageModel(this)
         pipeline = ServiceRoboterPipeline(
-            intentEngine = intentEngine,
-            knowledgeBase = vectorStore,
-            offlineLlm = offlineLlm,
-            onlineFallback = onlineFallback,
-            privacyFilter = privacyFilter
+            RuleBasedIntentEngine(RuleBasedIntentEngine.defaultIntents()),
+            vectorStore, offlineLlm, SimpleOnlineFallbackClient(this, settings, offlineLlm),
+            DefaultPrivacyFilter()
         )
-
-        applicationScope.launch {
-            sttEngine.initialize()
-            reloadDocuments()
-            isReady = true
+        scope.launch {
+            try {
+                readiness.value = ReadyState(message = "Deutsche Dokumentensuche wird geladen.")
+                embeddingProvider.initialize()
+                reloadDocuments()
+                readiness.value = ReadyState(message = "Spracherkennung wird geladen.")
+                sttEngine.initialize()
+                readiness.value = ReadyState(message = "Lokales Sprachmodell wird geladen.")
+                offlineLlm.initialize()
+                readiness.value = ReadyState(true, offlineLlm.status)
+            } catch (error: Exception) {
+                readiness.value = ReadyState(true, "Ein Teil konnte nicht geladen werden. Texteingabe ist verfügbar.")
+            }
         }
     }
 
-    suspend fun reloadDocuments() {
-        vectorStore.clear()
+    suspend fun reloadDocuments(): List<String> = documentMutex.withLock {
         pdfIngestor.indexAllDocuments(vectorStore)
     }
-
     fun isSmartSearchActive(): Boolean = embeddingProvider.isAvailable
-
-    companion object {
-        /** TODO: Hier deinen Google Gemini API Key eintragen für Online-KI-Antworten.
-         *  Kostenlos erstellbar unter: https://aistudio.google.com/app/apikey */
-        const val GEMINI_API_KEY = "AIzaSyBWJyMomybKnsiYD7aXV5AruXxXmG1bxr8"
-    }
 }

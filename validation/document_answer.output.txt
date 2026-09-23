@@ -1,0 +1,1 @@
+{"answer":"Das Frühstück beginnt um acht Uhr im Speisesaal.","supported":true,"needs_online":false,"evidence":["Das Frühstück beginnt um acht Uhr im Speisesaal."]} [end of text]

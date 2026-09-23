@@ -14,6 +14,7 @@ object TextChunker {
         maxWordsPerChunk: Int = 120,
         overlapWords: Int = 20
     ): List<String> {
+        require(maxWordsPerChunk > 0 && overlapWords >= 0)
         require(maxWordsPerChunk > overlapWords) {
             "maxWordsPerChunk muss größer als overlapWords sein, sonst entsteht eine Endlosschleife."
         }
