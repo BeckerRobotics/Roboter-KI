@@ -111,11 +111,27 @@ class MainViewModel(private val app: ServiceRoboterApplication) : ViewModel() {
             _uiState.value = _uiState.value.copy(currentStage = label)
         }
 
+        val answerPrefix = when (result.source) {
+            AnswerSource.INTENT -> "🤖 Befehl:"
+            AnswerSource.KNOWLEDGE_BASE -> "📄 Aus deinen Dokumenten:"
+            AnswerSource.OFFLINE_LLM -> "🏠 Lokale KI:"
+            AnswerSource.ONLINE_FALLBACK -> "🌐 Online-KI (Gemini):"
+            AnswerSource.NONE -> "❌ Keine Antwort:"
+        }
+
         _uiState.value = _uiState.value.copy(
             isThinking = false,
             currentStage = null,
-            answer = result.text,
+            answer = "$answerPrefix\n${result.text}",
             answerSource = result.source
         )
+
+        if (result.text.isNotBlank()) {
+            app.ttsProvider.speak(result.text)
+        }
+    }
+
+    fun stopSpeaking() {
+        app.ttsProvider.stop()
     }
 }

@@ -18,6 +18,11 @@ class InMemoryVectorStore(
     private val embeddingProvider: EmbeddingProvider
 ) : KnowledgeBase {
 
+    private val stopWords = setOf(
+        "der", "die", "das", "ein", "eine", "und", "ist", "sind", "mit", "fuer", "von", "aus",
+        "was", "wie", "wer", "wo", "wann", "warum", "einer", "einem", "einen"
+    )
+
     private data class Entry(val sourceId: String, val chunkText: String, val vector: FloatArray)
 
     private val entries = mutableListOf<Entry>()
@@ -49,15 +54,19 @@ class InMemoryVectorStore(
 
         return if (queryVector.isEmpty()) {
             // Fallback: Einfache Keyword-Suche, wenn kein Embedding-Modell verfügbar ist
-            val queryWords = query.lowercase().split(Regex("\\W+")).filter { it.length > 2 }
+            val queryWords = query.lowercase().split(Regex("\\W+"))
+                .filter { it.length > 2 && it !in stopWords }
+            
+            if (queryWords.isEmpty()) return emptyList()
+
             val results = entries.map { entry ->
                 val textLower = entry.chunkText.lowercase()
                 var matches = 0
                 queryWords.forEach { if (textLower.contains(it)) matches++ }
-                val score = if (queryWords.isEmpty()) 0f else matches.toFloat() / queryWords.size
+                val score = matches.toFloat() / queryWords.size
                 KnowledgeHit(entry.sourceId, entry.chunkText, score)
             }
-            .filter { it.score > 0.05f } // Etwas toleranter
+            .filter { it.score > 0.3f } // Hoehere Hürde für Keyword-Suche
             .sortedByDescending { it.score }
             .take(topK)
             

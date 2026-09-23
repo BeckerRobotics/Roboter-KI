@@ -173,6 +173,14 @@ private fun MainScreen(
         if (state.answer.isNotBlank()) {
             Text("Antwort:", style = MaterialTheme.typography.labelLarge)
             Text(state.answer, style = MaterialTheme.typography.bodyLarge)
+            
+            Button(
+                onClick = { viewModel.stopSpeaking() },
+                modifier = Modifier.padding(top = 8.dp)
+            ) {
+                Text("🔇 Ton aus")
+            }
+
             Spacer(Modifier.height(4.dp))
             state.answerSource?.let {
                 Text("(Quelle: $it)", style = MaterialTheme.typography.labelSmall)

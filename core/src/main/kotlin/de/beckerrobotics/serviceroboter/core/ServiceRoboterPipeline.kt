@@ -38,44 +38,52 @@ class ServiceRoboterPipeline(
             )
         }
 
-        // Stufe 1 – höchste Priorität lt. Anforderung: erst in Memo/PDF-Wissensbasis nachschauen.
+        // Stufe 1 – höchste Priorität: Wissensbasis
         onStage(PipelineStage.KnowledgeBaseLookup)
         val hits = knowledgeBase.search(userUtterance, config.topKKnowledgeHits)
         val bestHit = hits.firstOrNull()
-        if (bestHit != null) {
-            // Logik-Check: Nur wenn Score hoch genug
-            if (bestHit.score >= config.knowledgeConfidenceThreshold) {
-                val answerText = if (offlineLlm.isAvailable) {
-                    offlineLlm.generate(userUtterance, hits).text
-                } else {
-                    bestHit.chunkText
-                }
-                return PipelineResult(
-                    source = AnswerSource.KNOWLEDGE_BASE,
-                    text = answerText,
-                    intent = intent,
-                    knowledgeHits = hits,
-                    confidence = bestHit.score
-                )
+        
+        // Wenn Treffer SEHR gut ist (>0.8), sofort nehmen
+        if (bestHit != null && bestHit.score >= 0.8f) {
+            val answerText = if (offlineLlm.isAvailable) {
+                offlineLlm.generate(userUtterance, hits).text
+            } else {
+                bestHit.chunkText
             }
+            return PipelineResult(
+                source = AnswerSource.KNOWLEDGE_BASE,
+                text = answerText,
+                intent = intent,
+                knowledgeHits = hits,
+                confidence = bestHit.score
+            )
         }
 
-        // Stufe 2 – zweite Priorität: Offline-KI für freies Sprachverständnis.
+        // Stufe 2 – Offline-KI (mit oder ohne Kontext)
         if (offlineLlm.isAvailable) {
             onStage(PipelineStage.OfflineLlmGeneration)
-            val generation = offlineLlm.generate(userUtterance)
+            // Wenn wir einen mittelmäßigen Treffer haben, geben wir ihn als Kontext mit
+            val context = if (bestHit != null && bestHit.score >= config.knowledgeConfidenceThreshold) hits else emptyList()
+            val generation = offlineLlm.generate(userUtterance, context)
+            
+            // Das TemplateLLM hat confidence 0.6. Wenn es nur Text wiederholt, nehmen wir es nur,
+            // wenn der Context-Score auch okay war.
             if (generation.confidence >= config.offlineLlmConfidenceThreshold) {
-                return PipelineResult(
-                    source = AnswerSource.OFFLINE_LLM,
-                    text = generation.text,
-                    intent = intent,
-                    knowledgeHits = hits,
-                    confidence = generation.confidence
-                )
+                // Wenn es nur das Template ist und wir Smalltalk haben (kein Kontext), 
+                // wird confidence 0f sein -> Fallthrough zu Online!
+                if (generation.text.isNotBlank()) {
+                    return PipelineResult(
+                        source = AnswerSource.OFFLINE_LLM,
+                        text = generation.text,
+                        intent = intent,
+                        knowledgeHits = context,
+                        confidence = generation.confidence
+                    )
+                }
             }
         }
 
-        // Stufe 3 – letzte Option: Online-Fallback, nur nach Datenschutz-Prüfung und mit Netz.
+        // Stufe 3 – letzte Option: Online-KI
         if (config.onlineFallbackEnabled) {
             val sanitized = privacyFilter.sanitize(userUtterance)
             if (sanitized.blocked) {

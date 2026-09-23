@@ -7,6 +7,7 @@ import de.beckerrobotics.serviceroboter.app.network.SimpleOnlineFallbackClient
 import de.beckerrobotics.serviceroboter.app.rag.OnnxEmbeddingProvider
 import de.beckerrobotics.serviceroboter.app.rag.PdfIngestor
 import de.beckerrobotics.serviceroboter.app.stt.VoskSttEngine
+import de.beckerrobotics.serviceroboter.app.tts.TtsProvider
 import de.beckerrobotics.serviceroboter.core.DefaultPrivacyFilter
 import de.beckerrobotics.serviceroboter.core.InMemoryVectorStore
 import de.beckerrobotics.serviceroboter.core.OfflineLanguageModel
@@ -42,6 +43,9 @@ class ServiceRoboterApplication : Application() {
     lateinit var pdfIngestor: PdfIngestor
         private set
 
+    lateinit var ttsProvider: TtsProvider
+        private set
+
     private lateinit var embeddingProvider: OnnxEmbeddingProvider
 
     var isReady: Boolean = false
@@ -49,6 +53,8 @@ class ServiceRoboterApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+
+        ttsProvider = TtsProvider(this)
 
         embeddingProvider = OnnxEmbeddingProvider(this)
         vectorStore = InMemoryVectorStore(embeddingProvider)
