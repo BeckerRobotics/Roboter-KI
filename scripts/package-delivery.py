@@ -57,7 +57,7 @@ shutil.copy2(root / "app/src/main/assets/embeddings/download-manifest.json", rep
 
 provenance = """# Herkunft der enthaltenen Komponenten
 
-Stand: 15.09.2026. Die Lizenztexte und Modellkarten liegen in diesem Ordner.
+Stand: 29.10.2026. Die Lizenztexte und Modellkarten liegen in diesem Ordner.
 
 - Qwen3-4B-Instruct-2507: Qwen, Apache 2.0.
   https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507
@@ -85,7 +85,7 @@ sind in app/build.gradle.kts aufgeführt; deren Lizenzen gelten ebenfalls.
 (licenses / "HERKUNFT.md").write_text(provenance, encoding="utf-8")
 summary = """# Prüfbericht – Serviceroboter KI
 
-Stand: 15.09.2026
+Stand: 29.10.2026
 
 ## Ergebnis
 

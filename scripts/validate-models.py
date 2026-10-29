@@ -21,7 +21,7 @@ texts=[
  "Cafe\u0301 und Café sind schöne Wörter.",
  " Erste Zeile.\n\nZweite\tZeile.   ",
  "Don't worry, it's fine. We'll arrive at 10:30.",
- "Version 2.5, 15.09.2026 – 37,5 °C.",
+ "Version 2.5, 29.10.2026 – 37,5 °C.",
  "a\u00a0b\u2003c\n",
  "Wiederholung "*400
 ]

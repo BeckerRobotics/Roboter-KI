@@ -1,6 +1,6 @@
 # Serviceroboter KI – überarbeitete Testversion
 
-Stand: 15.09.2026. Grundlage: dein Projektarchiv vom 15.09.2026.
+Stand: 29.10.2026. Grundlage: dein Projektarchiv vom 29.10.2026.
 
 ## Was jetzt enthalten ist
 
